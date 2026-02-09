@@ -27,6 +27,17 @@ This implementation leverages CUDA for parallel computation of:
 - All N(N-1)/2 = 66 pairwise distances for 12 robots
 - Gradient computation for optimization
 - Trajectory smoothness costs
+
+TODO:
+- Make sure robots stay within defined acceleration and velocity limits (currently not enforced)
+- Allow robots to arrive at different times (Currently assumes all robots start and end at the same time)
+- Add support for holonomic robots (currently assumes circular robots with simple translation)
+- Add support for heterogeneous robot sizes (currently assumes identical robots)
+- Add support for dynamic obstacles (currently only static obstacles are supported)
+- Implement more advanced sampling strategies that leverage the structure of the problem (currently uses simple heuristics)
+- Add visualization tools to better understand the behavior of the planner and the structure of the solution space (currently no visualization) 
+- Implement more advanced path optimization techniques that can further improve the quality of the solution (currently uses a simple elastic band method)
+
 """
 
 # Third Party
@@ -625,6 +636,77 @@ def generate_random_configuration(
     return positions
 
 
+def generate_circle_configuration(
+    n_robots: int,
+    center: Tuple[float, float],
+    radius: float,
+    device: str,
+    dtype: torch.dtype,
+    rotation_offset: float = 0.0
+) -> torch.Tensor:
+    """
+    Generate a circular configuration with N robots evenly distributed.
+    
+    Args:
+        n_robots: Number of robots
+        center: (x, y) center of circle
+        radius: Radius of circle
+        device: Torch device
+        dtype: Torch dtype
+        rotation_offset: Angle offset in radians (default 0)
+        
+    Returns:
+        positions: [n_robots, 2] positions arranged in a circle
+    """
+    positions = torch.zeros((n_robots, 2), device=device, dtype=dtype)
+    
+    for i in range(n_robots):
+        angle = 2 * np.pi * i / n_robots + rotation_offset
+        x = center[0] + radius * np.cos(angle)
+        y = center[1] + radius * np.sin(angle)
+        positions[i] = torch.tensor([x, y], device=device, dtype=dtype)
+    
+    return positions
+
+
+def generate_circle_swap_configuration(
+    n_robots: int,
+    center: Tuple[float, float],
+    radius: float,
+    device: str,
+    dtype: torch.dtype
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Generate start and goal configurations where robots on a circle
+    need to swap with their opposite partner.
+    
+    Each robot i needs to move to the position of robot (i + n_robots/2).
+    This creates a challenging coordination problem.
+    
+    Args:
+        n_robots: Number of robots (should be even for perfect opposite pairs)
+        center: (x, y) center of circle
+        radius: Radius of circle
+        device: Torch device
+        dtype: Torch dtype
+        
+    Returns:
+        start_positions: Initial circle configuration
+        goal_positions: Target positions (rotated by π)
+    """
+    # Generate initial circle
+    start_positions = generate_circle_configuration(
+        n_robots, center, radius, device, dtype, rotation_offset=0.0
+    )
+    
+    # Goal is the same circle rotated by π (opposite positions)
+    goal_positions = generate_circle_configuration(
+        n_robots, center, radius, device, dtype, rotation_offset=np.pi
+    )
+    
+    return start_positions, goal_positions
+
+
 def demo_50_robots():
     """
     Demonstrate path planning for 50 robots in 100D configuration space.
@@ -637,7 +719,7 @@ def demo_50_robots():
     config = MultiRobotPlannerConfig(
         n_robots=50,
         robot_radius=0.1,
-        min_separation=0.22,  # 2*radius + small safety buffer (tighter)
+        min_separation=0.4,  # 2*radius + small safety buffer (tighter)
         workspace_bounds=(-8.0, 8.0, -8.0, 8.0),  # Larger workspace for more robots
         n_timesteps=80,  # More timesteps for complex paths
         dt=0.1,
@@ -648,7 +730,7 @@ def demo_50_robots():
         goal_weight=500.0,  # Much higher - very tight goal reaching
         velocity_weight=0.1,
         acceleration_weight=0.1,
-        collision_activation_distance=0.08,  # Very tight - only when nearly colliding
+        collision_activation_distance=0.3,  # Very tight - only when nearly colliding
         device="cuda:0" if torch.cuda.is_available() else "cpu"
     )
     
@@ -659,29 +741,35 @@ def demo_50_robots():
     # Create planner
     planner = MultiRobotPathPlanner(config)
     
-    # Generate random start and goal configurations
-    print("\nGenerating random start/goal configurations...")
+    # Generate circle swap configuration
+    print("\nGenerating circle swap configuration...")
+    print("Robots arranged in a circle, each must swap with opposite robot")
     
     torch.manual_seed(123)  # For reproducibility
     
-    start_positions = generate_random_configuration(
-        config.n_robots,
-        config.workspace_bounds,
-        config.min_separation,
-        config.device,
-        config.dtype
-    )
+    # Calculate appropriate circle radius based on number of robots and separation
+    # Arc length between adjacent robots should be at least min_separation
+    # Arc length = 2 * π * r / n_robots
+    # We want: 2 * π * r / n_robots >= min_separation * 1.5 (safety factor)
+    required_radius = (config.min_separation * 1.5 * config.n_robots) / (2 * np.pi)
+    circle_radius = max(required_radius, 3.0)  # At least 3.0 for visibility
     
-    goal_positions = generate_random_configuration(
+    print(f"Circle radius: {circle_radius:.2f} (required: {required_radius:.2f})")
+    
+    start_positions, goal_positions = generate_circle_swap_configuration(
         config.n_robots,
-        config.workspace_bounds,
-        config.min_separation,
-        config.device,
-        config.dtype
+        center=(0.0, 0.0),
+        radius=circle_radius,
+        device=config.device,
+        dtype=config.dtype
     )
     
     print(f"Start configuration collision-free: {not planner.check_collision(start_positions)}")
     print(f"Goal configuration collision-free: {not planner.check_collision(goal_positions)}")
+    
+    # Verify that goal is indeed opposite positions
+    center_dist = torch.norm(start_positions + goal_positions, dim=1).mean().item()
+    print(f"Mean distance from start+goal to center: {center_dist:.4f} (should be near 0)")
     
     # Plan trajectories
     print("\n" + "-" * 50)
