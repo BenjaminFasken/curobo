@@ -665,52 +665,6 @@ def plot_optimization_history(info: dict):
     plt.show()
 
 
-def animate_optimization_history(info: dict, filename: str = 'optimization_history.gif', dpi: int = 150):
-    """Create an animated GIF showing optimization history over iterations.
-
-    The animation shows the total, collision, and goal costs growing over
-    iterations so you can visualise convergence dynamics.
-    """
-    history = info['history']
-    total = history['total_cost']
-    coll = history['collision_cost']
-    goal = history['goal_cost']
-
-    n_frames = len(total)
-    fig, axes = plt.subplots(1, 3, figsize=(15, 4))
-
-    lines = []
-    for ax, data, title in zip(axes, [total, coll, goal], ['Total Cost', 'Collision Cost', 'Goal Cost']):
-        ax.set_xlim(0, max(1, n_frames - 1))
-        # Use log scale for total cost for visibility if values vary widely
-        ax.set_title(title)
-        ax.grid(True)
-        line, = ax.plot([], [], lw=2)
-        lines.append((ax, line, data))
-
-    def init():
-        for ax, line, data in lines:
-            line.set_data([], [])
-        return [line for _, line, _ in lines]
-
-    def animate(frame):
-        for ax, line, data in lines:
-            x = list(range(frame + 1))
-            y = data[:frame + 1]
-            line.set_data(x, y)
-            ax.relim()
-            ax.autoscale_view()
-        return [line for _, line, _ in lines]
-
-    anim = FuncAnimation(fig, animate, init_func=init, frames=n_frames, interval=40, blit=True)
-    try:
-        anim.save(filename, writer='pillow', dpi=dpi, fps=20)
-        print(f"Saved optimization animation to '{filename}'")
-    except Exception as e:
-        print(f"Failed to save animation: {e}")
-    plt.close(fig)
-
-
 def generate_random_configuration(
     n_robots: int,
     bounds: Tuple[float, float, float, float],
@@ -920,11 +874,6 @@ def demo_50_robots():
     visualize_trajectories(planner, trajectory, start_positions, goal_positions, 
                           save_animation=True)
     plot_optimization_history(info)
-    # Also save an animated GIF of the optimization history
-    try:
-        animate_optimization_history(info, filename='optimization_history.gif')
-    except Exception as e:
-        print(f"Could not create optimization GIF: {e}")
     
     return trajectory, info
 
@@ -1002,94 +951,10 @@ def demo_scalability():
     
     return results
 
-def demo_random_configuration():
-    """
-    Demonstrate path planning with random start and goal configurations.
-    """
-    print("\n" + "=" * 70)
-    print("Random Configuration Demo: 50 Robots in 100D Configuration Space")
-    print("=" * 70)
-    
-    # Configuration - same as main demo
-    config = MultiRobotPlannerConfig(
-        n_robots=80,
-        robot_radius=0.1,
-        min_separation=0.4,
-        workspace_bounds=(-8.0, 8.0, -8.0, 8.0),
-        n_timesteps=80,
-        dt=0.1,
-        n_iterations=400,
-        learning_rate=0.1,
-        collision_weight=30.0,
-        smoothness_weight=0.3,
-        goal_weight=500.0,
-        velocity_weight=0.1,
-        acceleration_weight=0.1,
-        collision_activation_distance=0.3,
-        device="cuda:0" if torch.cuda.is_available() else "cpu"
-    )
-    
-    print(f"\nUsing device: {config.device}")
-    
-    # Create planner
-    planner = MultiRobotPathPlanner(config)
-    
-    # Generate random start and goal configurations
-    print("\nGenerating random start and goal configurations...")
-    
-    torch.manual_seed(456)  # For reproducibility
-    
-    start_positions = generate_random_configuration(
-        config.n_robots, config.workspace_bounds, config.min_separation,
-        config.device, config.dtype
-    )
-    
-    goal_positions = generate_random_configuration(
-        config.n_robots, config.workspace_bounds, config.min_separation,
-        config.device, config.dtype
-    )
-    
-    print(f"Start configuration collision-free: {not planner.check_collision(start_positions)}")
-    print(f"Goal configuration collision-free: {not planner.check_collision(goal_positions)}")
-    
-    # Plan trajectories
-    print("\n" + "-" * 50)
-    print("Starting trajectory optimization...")
-    print("-" * 50)
-    
-    trajectory, info = planner.plan(start_positions, goal_positions, verbose=True)
-    
-     # Print summary
-    print("\n" + "=" * 50)
-    print("PLANNING SUMMARY")
-    print("=" * 50)
-    print(f"Planning time: {info['planning_time']:.2f} seconds")
-    print(f"Final cost: {info['final_cost']:.2f}")
-    print(f"Minimum pairwise distance: {info['min_pairwise_distance']:.3f}")
-    print(f"Required separation: {config.min_separation:.3f}")
-    print(f"Collision-free trajectory: {not info['has_collision']}")
-    print(f"Trajectory shape: {list(trajectory.shape)} (timesteps, robots, xy)")    
-
-    # Visualize and save outputs similar to the main demo
-    print("\nGenerating visualizations...")
-    try:
-        visualize_trajectories(planner, trajectory, start_positions, goal_positions, save_animation=True)
-    except Exception as e:
-        print(f"Could not create trajectory animation: {e}")
-
-    try:
-        plot_optimization_history(info)
-    except Exception as e:
-        print(f"Could not plot optimization history: {e}")
-
-    return trajectory, info
 
 if __name__ == "__main__":
     # Run main demo with 50 robots
     trajectory, info = demo_50_robots()
     
-    # run random configuration demo
-    # trajectory, info = demo_random_configuration()
-
     # Optionally run scalability test
     # results = demo_scalability()
