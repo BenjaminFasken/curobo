@@ -1,11 +1,11 @@
 """
-Multi-Robot Path Planning using cuRobo for 12 Robots in 24D Configuration Space
+Multi-Robot Path Planning using cuRobo for 50 Robots in 24D Configuration Space
 ================================================================================
 
-Planning collision-free paths for N robots (12) on a continuous 2D plane.
+Planning collision-free paths for N robots (50) on a continuous 2D plane.
 
-    Configuration Space: High-dimensional space (2N dimensions = 24D for 12 robots).
-    Each robot has (x, y) position, so full state is [x1,y1, x2,y2, ..., x12,y12].
+    Configuration Space: High-dimensional space (2N dimensions = 100D for 50 robots).
+    Each robot has (x, y) position, so full state is [x1,y1, x2,y2, ..., x50,y50].
     
     Constraints: No two robots may overlap (minimum separation distance).
 
@@ -24,7 +24,7 @@ Symmetry Exploitation Strategy:
 4. Optimize using cuRobo's trajectory optimization framework
 
 This implementation leverages CUDA for parallel computation of:
-- All N(N-1)/2 = 66 pairwise distances for 12 robots
+- All N(N-1)/2 = 1225 pairwise distances for 50 robots
 - Gradient computation for optimization
 - Trajectory smoothness costs
 
@@ -59,7 +59,7 @@ class MultiRobotPlannerConfig:
     """Configuration for multi-robot path planning."""
     
     # Number of robots
-    n_robots: int = 12
+    n_robots: int = 50
     
     # Robot radius for collision checking
     robot_radius: float = 0.15
@@ -121,7 +121,7 @@ class MultiRobotPathPlanner:
             for j in range(i + 1, n):
                 pairs.append((i, j))
         
-        self.n_pairs = len(pairs)  # N*(N-1)/2 = 66 for N=12
+        self.n_pairs = len(pairs)  # N*(N-1)/2 = 1225 for N=50
         
         # Convert to tensors for efficient indexing
         self.pair_idx_i = torch.tensor(
